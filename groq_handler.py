@@ -1,5 +1,6 @@
 from groq import Groq
 from typing import Dict, Optional
+import json
 
 class GroqHandler:
     def __init__(self, api_key: str):
@@ -13,12 +14,13 @@ class GroqHandler:
         2. Image search queries
         3. Captions or text to add
         
-        Return a JSON object with:
+        IMPORTANT: You must return a valid JSON object in exactly this format:
         {
             "subjects": ["list of main subjects"],
             "search_queries": ["list of image search terms"],
             "captions": ["list of captions for each image"]
-        }"""
+        }
+        Each list must contain at least one item. Do not include any other text or explanation."""
 
         try:
             completion = self.client.chat.completions.create(
@@ -30,7 +32,21 @@ class GroqHandler:
                 temperature=0.7,
                 max_tokens=500
             )
-            return completion.choices[0].message.content
+            
+            content = completion.choices[0].message.content.strip()
+            
+            # Validate JSON structure
+            try:
+                data = json.loads(content)
+                if not all(key in data for key in ["subjects", "search_queries", "captions"]):
+                    raise ValueError("Missing required fields in response")
+                if not all(isinstance(data[key], list) and len(data[key]) > 0 for key in ["subjects", "search_queries", "captions"]):
+                    raise ValueError("Empty or invalid lists in response")
+                return data
+            except (json.JSONDecodeError, ValueError) as e:
+                print(f"Invalid response format: {str(e)}\nResponse: {content}")
+                return None
+                
         except Exception as e:
             print(f"Error analyzing meme request: {str(e)}")
             return None
