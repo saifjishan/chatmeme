@@ -4,12 +4,12 @@ import requests
 from datetime import datetime
 import random
 import os
-from image_handler import ImageHandler
 from groq_handler import GroqHandler
+from image_handler import ImageHandler
 
 # Page configuration
 st.set_page_config(
-    page_title="MemeGPT - Your Sarcastic Meme Companion",
+    page_title="ChatMeme.ai - Your Sarcastic Meme Companion",
     page_icon="🤖",
     layout="wide"
 )
@@ -53,59 +53,43 @@ if "chat_history" not in st.session_state:
 if "current_meme" not in st.session_state:
     st.session_state.current_meme = None
 
-if "remove_bg" not in st.session_state:
-    st.session_state.remove_bg = False
-
 # Initialize handlers
 groq_handler = GroqHandler(st.secrets["groq_api_key"])
-image_handler = ImageHandler(st.secrets["grok_api_key"])
+image_handler = ImageHandler()
 
-def generate_meme_response(prompt):
-    """Generate a meme response using Grok for vision and Groq for processing."""
+def generate_meme_response(prompt: str) -> str:
+    """Generate a meme response using Groq for analysis and ImageHandler for creation."""
     try:
-        # Step 1: Use Grok to analyze the request and generate vision
-        grok_vision = groq_handler.analyze_meme_request(prompt)
-        
-        if not grok_vision:
+        # Step 1: Analyze the meme request
+        analysis = groq_handler.analyze_meme_request(prompt)
+        if not analysis:
             return "I couldn't understand the meme request. Try another prompt!"
             
-        # Step 2: Search for images based on Grok's vision
-        image_data = {}
-        for idx, query in enumerate(grok_vision["search_queries"]):
-            results = image_handler.search_images(query, num_images=1)
-            if results:
-                image_data[f"image_{idx}"] = {
-                    "url": results[0],
-                    "caption": grok_vision["captions"][idx],
-                    "subject": grok_vision["subjects"][idx]
-                }
-        
-        if not image_data:
-            return "I couldn't find any suitable images for your meme. Try a different prompt!"
+        # Parse the analysis
+        try:
+            data = json.loads(analysis)
+            search_query = data["search_queries"][0]  # Use first search query
+            caption = groq_handler.format_meme_text(data["captions"][0])  # Format first caption
+        except (json.JSONDecodeError, KeyError, IndexError) as e:
+            print(f"Error parsing analysis: {str(e)}")
+            return "I had trouble processing your request. Try something simpler!"
 
-        # Step 3: Use Groq to determine optimal composition
-        composition = groq_handler.process_meme_composition(image_data, grok_vision)
-        
-        # Step 4: Create the meme based on Groq's composition plan
-        meme_image = image_handler.create_meme(
-            image_data=image_data,
-            composition=composition
-        )
-        
-        if meme_image:
-            st.session_state.current_meme = meme_image
-            return "Here's your meme! How do you like it? 😎"
+        # Step 2: Create the meme
+        meme_bytes = image_handler.create_meme(search_query, caption)
+        if meme_bytes:
+            st.session_state.current_meme = meme_bytes
+            return f"Here's your meme about {data['subjects'][0]}! 😎"
         else:
-            return "I created the meme concept but had trouble with the image processing. Try again!"
+            return "I had trouble creating the meme. Try another prompt!"
 
     except Exception as e:
-        st.error(f"Error generating meme: {str(e)}")
-        return "Sorry, I encountered an error while creating your meme. Please try again!"
+        print(f"Error generating meme: {str(e)}")
+        return "Oops! Something went wrong while creating your meme. Please try again!"
 
-def generate_response(prompt, play_it_safe=False):
+def generate_response(prompt: str, play_it_safe: bool = False) -> str:
     """Generate text response using Groq for better formatting."""
     if not play_it_safe:
-        # Use existing sarcastic responses
+        # Sarcastic responses for non-play-it-safe mode
         sarcastic_responses = [
             "Oh, you want me to do something? How about... no. Try adding #play-it-safe if you're serious.",
             "Sorry, I only speak in memes, and I don't see a #play-it-safe tag. Try again!",
@@ -115,32 +99,46 @@ def generate_response(prompt, play_it_safe=False):
         ]
         return random.choice(sarcastic_responses)
 
+    # Use Grok for regular responses
+    API_KEY = st.secrets["groq_api_key"]
+    API_URL = "https://api.x.ai/v1/chat/completions"
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {API_KEY}"
+    }
+
+    system_message = """You are MemeGPT, a specialized AI that excels in creating memes and jokes. 
+    Your responses should be creative, funny, and meme-worthy. Focus on generating humorous content 
+    and meme suggestions."""
+
     try:
-        # Use Groq for structured responses
-        completion = groq_handler.client.chat.completions.create(
-            model=groq_handler.model,
-            messages=[
-                {"role": "system", "content": "You are a witty and creative meme assistant."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_tokens=200
+        response = requests.post(
+            API_URL,
+            headers=headers,
+            json={
+                "messages": [
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": prompt}
+                ],
+                "model": "grok-beta",
+                "stream": False,
+                "temperature": 0.7
+            }
         )
-        return completion.choices[0].message.content
+        response.raise_for_status()
+        return response.json()['choices'][0]['message']['content']
     except Exception as e:
-        st.error(f"Error generating response: {str(e)}")
+        print(f"Error generating response: {str(e)}")
         return "Sorry, I'm having trouble being creative right now. Try again!"
 
 # Sidebar with chat history
 with st.sidebar:
     st.header("💬 Chat History")
-    
-    # Add background removal toggle
-    st.session_state.remove_bg = st.toggle("Remove Image Backgrounds", value=st.session_state.remove_bg)
-    
     if st.button("Clear History", key="clear"):
         st.session_state.messages = []
         st.session_state.chat_history = []
+        st.session_state.current_meme = None
         st.experimental_rerun()
     
     for chat in st.session_state.chat_history:
@@ -153,17 +151,17 @@ st.title("🤖 MemeGPT - Your Sarcastic Meme Companion")
 st.markdown("""
     Welcome to MemeGPT! I'm your sarcastic meme-generating companion.
     - Use `#play-it-safe` at the end of your message for meme generation
+    - Try prompts like: "Create a meme about coding frustrations #play-it-safe"
     - Without `#play-it-safe`, expect maximum sass!
-    - Try prompts like: "Create a meme about the struggles of coding #play-it-safe"
 """)
 
-# Display chat messages and handle meme display
+# Display chat messages
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
         if message["role"] == "assistant" and st.session_state.current_meme:
-            st.image(st.session_state.current_meme, caption="Generated Meme")
-            st.session_state.current_meme = None  # Clear the current meme after displaying
+            st.image(st.session_state.current_meme)
+            st.session_state.current_meme = None
 
 # Chat input
 if prompt := st.chat_input("What's on your mind? (Use #play-it-safe for memes)"):
@@ -187,7 +185,7 @@ if prompt := st.chat_input("What's on your mind? (Use #play-it-safe for memes)")
     with st.chat_message("assistant"):
         st.markdown(response)
         if st.session_state.current_meme:
-            st.image(st.session_state.current_meme, caption="Generated Meme")
+            st.image(st.session_state.current_meme)
             st.session_state.current_meme = None
     
     # Add assistant response to chat history
