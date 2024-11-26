@@ -63,28 +63,22 @@ def generate_meme_response(prompt: str) -> str:
         # Step 1: Analyze the meme request
         analysis = groq_handler.analyze_meme_request(prompt)
         if not analysis:
-            return "I couldn't understand the meme request. Try another prompt!"
+            return "I couldn't understand what kind of meme you want. Try being more specific about the subject and what makes it funny!"
             
-        # Parse the analysis
-        try:
-            data = json.loads(analysis)
-            search_query = data["search_queries"][0]  # Use first search query
-            caption = groq_handler.format_meme_text(data["captions"][0])  # Format first caption
-        except (json.JSONDecodeError, KeyError, IndexError) as e:
-            print(f"Error parsing analysis: {str(e)}")
-            return "I had trouble processing your request. Try something simpler!"
-
         # Step 2: Create the meme
+        search_query = analysis["search_queries"][0]  # Use first search query
+        caption = groq_handler.format_meme_text(analysis["captions"][0])  # Format first caption
+        
         meme_bytes = image_handler.create_meme(search_query, caption)
         if meme_bytes:
             st.session_state.current_meme = meme_bytes
-            return f"Here's your meme about {data['subjects'][0]}! 😎"
+            return f"Here's your meme about {analysis['subjects'][0]}! 😎"
         else:
-            return "I had trouble creating the meme. Try another prompt!"
+            return "I couldn't find a good image for your meme. Try a different subject or description!"
 
     except Exception as e:
         print(f"Error generating meme: {str(e)}")
-        return "Oops! Something went wrong while creating your meme. Please try again!"
+        return "Oops! Something unexpected happened. Please try again with a simpler meme idea!"
 
 def generate_response(prompt: str, play_it_safe: bool = False) -> str:
     """Generate text response using Groq for better formatting."""
