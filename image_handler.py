@@ -12,7 +12,12 @@ from functools import lru_cache
 import hashlib
 import time
 from duckduckgo_search import DDGS
-from rembg import remove
+try:
+    from rembg import remove
+    REMBG_AVAILABLE = True
+except ImportError:
+    REMBG_AVAILABLE = False
+    print("Warning: rembg package not available. Background removal will be disabled.")
 import numpy as np
 
 class ImageHandler:
@@ -68,14 +73,17 @@ class ImageHandler:
 
     def remove_background(self, img: Image.Image) -> Image.Image:
         """Remove background from image using rembg."""
+        if not REMBG_AVAILABLE:
+            print("Warning: Background removal requested but rembg is not available.")
+            return img
+            
         try:
-            # Convert to bytes
-            img_byte_arr = io.BytesIO()
-            img.save(img_byte_arr, format='PNG')
-            img_byte_arr.seek(0)
+            # Convert to RGB if image is RGBA
+            if img.mode == 'RGBA':
+                img = img.convert('RGB')
             
             # Remove background
-            output = remove(img_byte_arr.getvalue())
+            output = remove(img)
             return Image.open(io.BytesIO(output))
         except Exception as e:
             print(f"Error removing background: {str(e)}")
@@ -346,6 +354,7 @@ class ImageHandler:
                     for idx, img in enumerate(processed_images.values()):
                         row = idx // cols
                         col = idx % cols
+                        
                         img = self.resize_image(img, (cell_width, cell_height))
                         x = spacing + col * (cell_width + spacing)
                         y = spacing + row * (cell_height + spacing)
