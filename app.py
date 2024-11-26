@@ -9,7 +9,7 @@ from groq_handler import GroqHandler
 
 # Page configuration
 st.set_page_config(
-    page_title="MemeGPT - Your Sarcastic Meme Companion",
+    page_title="ChatMeme.ai - Your Sarcastic Meme Companion",
     page_icon="🤖",
     layout="wide"
 )
