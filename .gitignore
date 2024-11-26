@@ -1,5 +1,4 @@
 # Python
-__pycache__/
 *.py[cod]
 *$py.class
 *.so
@@ -22,28 +21,46 @@ wheels/
 *.egg
 
 # Virtual Environment
-venv/
 ENV/
 
 # IDE
-.idea/
-.vscode/
 *.swp
 *.swo
 
 # Streamlit
-.streamlit/secrets.toml
 
 # OS
 .DS_Store
 Thumbs.db
 
 # Project specific
-cache/
 *.jpg
 *.jpeg
 *.png
-*.log
+
+# Cache directories
+cache/
+.cache/
+__pycache__/
+
+# Environment and secrets
 .env
+.streamlit/secrets.toml
+.venv/
+venv/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.temp
 temp/
+tmp/
+
+# Logs
+*.log
 logs/

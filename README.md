@@ -6,131 +6,126 @@ A sophisticated meme generator powered by dual AI engines (Grok & Groq) with adv
 
 - 🧠 Dual AI Processing
   - Grok AI for vision and context analysis
-  - Groq (Llama3 8B) for structured responses
-  - Enhanced caption generation
-  - Smart context understanding
+  - Groq (Llama3 8B) for structured responses and composition
+  - Smart workflow separation
+  - Intelligent decision making
 
-- 🎯 Intelligent Meme Creation
+- 🎯 Advanced Meme Creation
   - Multi-model approach for better results
-  - Contextual image search and selection
-  - Dynamic caption generation
-  - Fallback mechanisms for reliability
+  - DuckDuckGo image search integration
+  - Precise composition control
+  - Background removal capabilities
 
 - 🖼️ Advanced Image Processing
   - Multi-panel meme collages (up to 3 images)
   - Smart image caching system
-  - Auto-enhancement with contrast and sharpness
-  - Professional text overlay with shadow effects
-  - Intelligent aspect ratio preservation
-  - Optimized image quality and performance
-  - Retry mechanisms for reliable image fetching
+  - Resolution control (500-700 pixels)
+  - Text placement optimization (max 400 pixels)
+  - Multiple layout options (grid, vertical, horizontal)
+  - Optional background removal
+  - Professional text overlays with shadows
 
-- 💬 Interactive Chat
-  - Sarcastic responses by default
-  - #play-it-safe tag for meme generation
-  - Chat history tracking
-  - Dark mode interface
+## 🔄 Workflow
 
-## 🚀 Usage
+1. **Initial Vision (Grok AI)**
+   - Analyzes meme requests
+   - Determines text content
+   - Suggests visual composition
+   - Extracts main subjects
 
-1. Visit: https://chatmeme-ai.streamlit.app
-2. Type your meme request with #play-it-safe tag
-   Examples:
-   - "Create a meme about coffee addiction in the morning #play-it-safe"
-   - "Make a meme about programmers debugging code #play-it-safe"
-   - "Generate a meme about cats being lazy #play-it-safe"
-3. The app will:
-   - Analyze your request using both AIs
+2. **Image Search (DuckDuckGo)**
+   - Precise image queries
+   - Quality filtering
+   - Smart caching
+   - Error handling
+
+3. **Composition (Groq)**
+   - Layout decisions
+   - Resolution control
+   - Text placement
+   - Background removal choices
+   - Style suggestions
+
+4. **Image Processing**
+   - Resolution optimization
+   - Layout application
+   - Text overlay
+   - Background removal (if requested)
+   - Final composition
+
+## 🛠️ Technical Stack
+
+- **Framework:** Streamlit 1.40.1
+- **AI Models:**
+  - Grok AI (Vision & Context)
+  - Groq/Llama3 8B (Composition)
+- **Image Processing:**
+  - Pillow 11.0.0
+  - rembg 2.0.60
+  - numpy 1.26.4
+- **Search:**
+  - duckduckgo-search 6.3.6
+- **Other:**
+  - requests 2.31.0
+  - beautifulsoup4 4.12.2
+
+## 🚀 Setup
+
+1. Clone the repository
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Configure API keys in `.streamlit/secrets.toml`:
+   ```toml
+   GROK_API_KEY = "your-grok-api-key"
+   GROQ_API_KEY = "your-groq-api-key"
+   ```
+4. Run the app:
+   ```bash
+   streamlit run app.py
+   ```
+
+## 🔐 API Keys Required
+
+- **Grok API Key:** For vision and context analysis
+- **Groq API Key:** For composition decisions and text generation
+
+## 📝 Usage
+
+1. Enter your meme idea in the text input
+2. The app will:
+   - Analyze your request using Grok
    - Find relevant images
-   - Create a meme collage
-   - Add witty captions
+   - Determine optimal composition with Groq
+   - Create a professional meme
+3. Use the sidebar toggle to enable/disable background removal
+4. View your generated meme and chat history
 
-## 🛠️ Development
+## 🔧 Development
 
-### Requirements
-- Python 3.11+
-- Streamlit 1.40.1
-- Requests 2.31.0
-- Pillow 11.0.0
-- BeautifulSoup4 4.12.2
-- Groq 0.4.2
-
-### Local Setup
-```bash
-# Clone the repository
-git clone https://github.com/saifjishan/chatmeme.git
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Create cache directory for images
-mkdir -p cache
-
-# Run the app
-streamlit run app.py
-```
-
-### Environment Variables
-The app requires the following API keys:
-- `GROK_API_KEY`: Your Grok AI API key
-- `GROQ_API_KEY`: Your Groq API key
-- `SCRAPER_API_KEY`: Your ScraperAPI key
-
-For local development, create a `.streamlit/secrets.toml` file:
-```toml
-GROK_API_KEY = "your-grok-api-key"
-GROQ_API_KEY = "your-groq-api-key"
-SCRAPER_API_KEY = "your-scraper-api-key"
-```
-
-## 🔄 How It Works
-
-1. **Request Analysis**
-   - Groq analyzes the meme request and structures the response
-   - Grok provides additional context understanding
-   - Together they identify key subjects and generate search queries
-   - Smart caption generation using both models
-
-2. **Image Processing**
-   - Intelligent image search with quality filters
-   - Smart caching system for better performance
-   - Auto-enhancement of images:
-     - Contrast adjustment
-     - Subtle sharpening
-     - Aspect ratio preservation
-   - Professional text effects:
-     - Shadow effects for readability
-     - Enhanced border rendering
-     - Multiple font options
-
-3. **Meme Generation**
-   - Single image: Centered with AI-generated caption
-   - Two images: Side by side with contextual captions
-   - Three images: Equal width panels with thematic captions
-   - Fallback mechanisms ensure reliability
-
-## 🔒 Security
-
-- API keys stored securely in `.streamlit/secrets.toml`
-- Environment-specific configuration
-- No sensitive data in version control
-- Rate limiting and error handling
+The project uses a modular architecture:
+- `app.py`: Main Streamlit application
+- `groq_handler.py`: Groq API integration and composition decisions
+- `image_handler.py`: Image processing and meme creation
+- `.streamlit/`: Configuration and secrets
+- `cache/`: Image cache directory (auto-created)
 
 ## 🤝 Contributing
 
 1. Fork the repository
-2. Create your feature branch
+2. Create a feature branch
 3. Commit your changes
 4. Push to the branch
 5. Create a Pull Request
 
-## 📝 License
+## 📄 License
 
-MIT License - feel free to use this project however you'd like!
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## 🙏 Acknowledgments
 
-- Grok AI for vision and context analysis
-- Groq for the powerful Llama3 language model
-- ScraperAPI for image search capabilities
-- Streamlit for the awesome web framework
+- Grok AI team for vision capabilities
+- Groq team for the Llama3 model
+- Streamlit for the web framework
+- DuckDuckGo for image search API

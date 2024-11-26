@@ -3,11 +3,101 @@ import json
 from typing import Dict, List, Optional, Union
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from PIL import Image
+import io
+import base64
 
 class GroqHandler:
     def __init__(self, api_key: str):
         self.client = Groq(api_key=api_key)
         self.model = "llama3-groq-8b-8192-tool-use-preview"
+
+    def process_meme_composition(self, image_data: Dict, grok_vision: Dict) -> Dict:
+        """Process meme composition using Groq's tool use capabilities."""
+        system_prompt = """You are a meme composition expert that processes images based on Grok's vision.
+        Given image data and Grok's vision, determine the best way to compose the meme.
+        
+        Available tools and constraints:
+        1. Image Processing:
+           - Resolution: 500-700 pixels (both height and width)
+           - Text max width: 400 pixels
+           - Background removal option
+           - Collage creation (1-3 images)
+           
+        Return a JSON object with:
+        {
+            "composition_type": "single"|"collage",
+            "remove_background": true|false,
+            "target_resolution": {"width": int, "height": int},
+            "text_placement": [
+                {
+                    "text": str,
+                    "position": {"x": int, "y": int},
+                    "max_width": int
+                }
+            ],
+            "layout": {
+                "type": "grid"|"vertical"|"horizontal",
+                "spacing": int
+            }
+        }"""
+
+        try:
+            # Convert vision and image data to a structured prompt
+            prompt = f"""
+            Grok's Vision: {json.dumps(grok_vision)}
+            Available Images: {json.dumps(image_data)}
+            
+            Based on this information, determine the optimal meme composition that:
+            1. Maintains resolution between 500-700 pixels
+            2. Keeps text within 400 pixels width
+            3. Decides if background removal would enhance the meme
+            4. Chooses the best layout for the content
+            """
+
+            completion = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=1000
+            )
+            
+            # Parse and validate response
+            response = completion.choices[0].message.content
+            result = json.loads(response)
+            
+            # Validate resolution constraints
+            if "target_resolution" in result:
+                width = result["target_resolution"]["width"]
+                height = result["target_resolution"]["height"]
+                result["target_resolution"]["width"] = max(500, min(700, width))
+                result["target_resolution"]["height"] = max(500, min(700, height))
+            
+            # Validate text placement
+            for text_obj in result.get("text_placement", []):
+                text_obj["max_width"] = min(400, text_obj.get("max_width", 400))
+            
+            return result
+
+        except Exception as e:
+            print(f"Error in process_meme_composition: {str(e)}")
+            # Return default composition if something goes wrong
+            return {
+                "composition_type": "single",
+                "remove_background": False,
+                "target_resolution": {"width": 600, "height": 600},
+                "text_placement": [
+                    {
+                        "text": list(image_data.values())[0]["caption"],
+                        "position": {"x": 300, "y": 550},
+                        "max_width": 400
+                    }
+                ],
+                "layout": {"type": "grid", "spacing": 20}
+            }
 
     def analyze_meme_request(self, prompt: str) -> Dict:
         """Analyze meme request and format response using Groq."""
@@ -16,15 +106,19 @@ class GroqHandler:
         1. Key subjects or concepts (up to 3)
         2. Specific image search queries for each subject
         3. Funny captions for each image
+        4. Visual style suggestions
         
         Always return valid JSON in this format:
         {
             "subjects": ["subject1", "subject2", "subject3"],
             "search_queries": ["detailed query 1", "detailed query 2", "detailed query 3"],
-            "captions": ["funny caption 1", "funny caption 2", "funny caption 3"]
-        }
-        
-        Keep queries specific and captions short and funny."""
+            "captions": ["funny caption 1", "funny caption 2", "funny caption 3"],
+            "style": {
+                "mood": "funny|dramatic|sarcastic",
+                "visual_effects": ["effect1", "effect2"],
+                "composition": "single|multi_panel"
+            }
+        }"""
 
         try:
             completion = self.client.chat.completions.create(
@@ -50,13 +144,8 @@ class GroqHandler:
             return result
 
         except Exception as e:
-            print(f"Error in Groq analysis: {str(e)}")
-            # Return a basic structure if there's an error
-            return {
-                "subjects": ["meme"],
-                "search_queries": [prompt],
-                "captions": ["When the meme doesn't work as expected"]
-            }
+            print(f"Error in analyze_meme_request: {str(e)}")
+            return None
 
     async def analyze_meme_request_async(self, prompt: str) -> Dict:
         """Asynchronous version of analyze_meme_request."""
