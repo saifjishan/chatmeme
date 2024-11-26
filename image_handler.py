@@ -11,10 +11,12 @@ from bs4 import BeautifulSoup
 from functools import lru_cache
 import hashlib
 import time
+from duckduckgo_search import DDGS
+from rembg import remove
+import numpy as np
 
 class ImageHandler:
-    def __init__(self, scraper_api_key: str, grok_api_key: str):
-        self.scraper_api_key = scraper_api_key
+    def __init__(self, grok_api_key: str):
         self.grok_api_key = grok_api_key
         self.headers = {
             "Content-Type": "application/json",
@@ -22,6 +24,8 @@ class ImageHandler:
         }
         self.session = requests.Session()
         self._setup_cache_dir()
+        self.MAX_SIZE = 700  # Maximum dimension for any image
+        self.MIN_SIZE = 300  # Minimum dimension for any image
 
     def _setup_cache_dir(self):
         """Setup cache directory for storing processed images."""
@@ -34,72 +38,71 @@ class ImageHandler:
         url_hash = hashlib.md5(url.encode()).hexdigest()
         return os.path.join(self.cache_dir, f"{url_hash}.jpg")
 
-    def search_images(self, query: str, num_images: int = 3, retries: int = 3) -> list:
-        """Search for images using ScraperAPI with retry mechanism."""
-        encoded_query = requests.utils.quote(query)
-        search_url = f"https://www.google.com/search?q={encoded_query}&tbm=isch"
-        
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        
-        payload = {
-            'api_key': self.scraper_api_key,
-            'url': search_url,
-            'render': True,
-            'keep_headers': True
-        }
-        
-        for attempt in range(retries):
-            try:
-                print(f"Searching for images with query: {query} (Attempt {attempt + 1}/{retries})")
-                response = self.session.get('https://api.scraperapi.com/', params=payload, headers=headers)
-                response.raise_for_status()
-                
-                soup = BeautifulSoup(response.text, 'html.parser')
-                image_urls = []
-                
-                # Find image URLs with better quality filtering
-                for img in soup.find_all('img'):
-                    src = img.get('src', '')
-                    if (src.startswith('http') and 
-                        any(src.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png']) and
-                        'thumb' not in src.lower() and
-                        'icon' not in src.lower()):
-                        image_urls.append(src)
-                        if len(image_urls) >= num_images:
-                            break
-                
-                if not image_urls:
-                    urls = re.findall('https?://[^"\']*?(?:jpg|png|jpeg)(?!\?thumb)', response.text, re.IGNORECASE)
-                    image_urls = urls[:num_images]
-                
-                return image_urls
-                
-            except Exception as e:
-                print(f"Error searching images (Attempt {attempt + 1}): {str(e)}")
-                if attempt < retries - 1:
-                    time.sleep(1)  # Wait before retry
-                    continue
-                return []
-
-    def enhance_image(self, img: Image.Image) -> Image.Image:
-        """Enhance image quality."""
+    def search_images(self, query: str, num_images: int = 3) -> list:
+        """Search for images using DuckDuckGo."""
         try:
-            # Auto-contrast
-            enhancer = ImageEnhance.Contrast(img)
-            img = enhancer.enhance(1.2)
-            
-            # Slight sharpening
-            enhancer = ImageEnhance.Sharpness(img)
-            img = enhancer.enhance(1.1)
-            
-            return img
+            print(f"Searching for images with query: {query}")
+            with DDGS() as ddgs:
+                images = list(ddgs.images(
+                    query,
+                    max_results=num_images * 2,  # Get extra images in case some fail
+                    type='photo'
+                ))
+
+            # Filter and validate images
+            valid_urls = []
+            for img in images:
+                if img['image'].startswith('http') and any(
+                    img['image'].lower().endswith(ext) 
+                    for ext in ['.jpg', '.jpeg', '.png']
+                ):
+                    valid_urls.append(img['image'])
+                if len(valid_urls) >= num_images:
+                    break
+
+            return valid_urls[:num_images]
+
         except Exception as e:
-            print(f"Error enhancing image: {str(e)}")
+            print(f"Error searching images: {str(e)}")
+            return []
+
+    def remove_background(self, img: Image.Image) -> Image.Image:
+        """Remove background from image using rembg."""
+        try:
+            # Convert to bytes
+            img_byte_arr = io.BytesIO()
+            img.save(img_byte_arr, format='PNG')
+            img_byte_arr.seek(0)
+            
+            # Remove background
+            output = remove(img_byte_arr.getvalue())
+            return Image.open(io.BytesIO(output))
+        except Exception as e:
+            print(f"Error removing background: {str(e)}")
             return img
 
-    def create_collage(self, image_urls: List[str], texts: List[str]) -> Optional[bytes]:
+    def resize_image(self, img: Image.Image, target_size: Tuple[int, int]) -> Image.Image:
+        """Resize image while maintaining aspect ratio within bounds."""
+        # Calculate target size while maintaining aspect ratio
+        aspect = img.width / img.height
+        if aspect > 1:
+            # Wider than tall
+            new_width = min(target_size[0], self.MAX_SIZE)
+            new_height = int(new_width / aspect)
+            if new_height < self.MIN_SIZE:
+                new_height = self.MIN_SIZE
+                new_width = int(new_height * aspect)
+        else:
+            # Taller than wide
+            new_height = min(target_size[1], self.MAX_SIZE)
+            new_width = int(new_height * aspect)
+            if new_width < self.MIN_SIZE:
+                new_width = self.MIN_SIZE
+                new_height = int(new_width / aspect)
+
+        return img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+    def create_collage(self, image_urls: List[str], texts: List[str], remove_bg: bool = False) -> Optional[bytes]:
         """Create a collage from multiple images with text overlays."""
         try:
             # Download and process images
@@ -108,7 +111,6 @@ class ImageHandler:
                 try:
                     cache_path = self._get_cached_image_path(url)
                     
-                    # Try to load from cache first
                     if os.path.exists(cache_path):
                         img = Image.open(cache_path)
                     else:
@@ -116,9 +118,13 @@ class ImageHandler:
                         response.raise_for_status()
                         img = Image.open(io.BytesIO(response.content))
                         img = ImageOps.exif_transpose(img)
-                        img = img.convert('RGB')
-                        img = self.enhance_image(img)
-                        img.save(cache_path, 'JPEG', quality=95)
+                        img = img.convert('RGBA' if remove_bg else 'RGB')
+                        
+                        # Remove background if requested
+                        if remove_bg:
+                            img = self.remove_background(img)
+                        
+                        img.save(cache_path, 'PNG' if remove_bg else 'JPEG', quality=95)
                     
                     images.append(img)
                 except Exception as e:
@@ -128,97 +134,80 @@ class ImageHandler:
             if not images:
                 return None
 
-            # Calculate collage dimensions with better spacing
+            # Calculate collage dimensions based on content
             num_images = len(images)
-            border_width = 10  # Increased border width
+            padding = 20
             
             if num_images == 1:
-                collage_width = 800
-                collage_height = 800
-            else:
-                collage_width = 1200
-                collage_height = 800
-
-            # Create white background
-            collage = Image.new('RGB', (collage_width, collage_height), 'white')
-            draw = ImageDraw.Draw(collage)
-
-            # Calculate positions with better spacing
-            if num_images == 1:
-                positions = [(border_width, border_width, 
-                            collage_width-border_width, collage_height-border_width)]
-            elif num_images == 2:
-                positions = [
-                    (border_width, border_width, 
-                     collage_width//2-border_width, collage_height-border_width),
-                    (collage_width//2+border_width, border_width, 
-                     collage_width-border_width, collage_height-border_width)
-                ]
-            else:
-                positions = [
-                    (border_width, border_width, 
-                     collage_width//3-border_width, collage_height-border_width),
-                    (collage_width//3+border_width, border_width, 
-                     2*collage_width//3-border_width, collage_height-border_width),
-                    (2*collage_width//3+border_width, border_width, 
-                     collage_width-border_width, collage_height-border_width)
-                ]
-
-            # Place images in collage with enhanced positioning
-            for idx, (img, pos) in enumerate(zip(images, positions)):
-                target_width = pos[2] - pos[0]
-                target_height = pos[3] - pos[1]
+                # Single image with text
+                base_width = 600
+                base_height = 600
+                img = self.resize_image(images[0], (base_width - 2*padding, base_height - 2*padding))
+                collage_width = img.width + 2*padding
+                collage_height = img.height + 2*padding + 100  # Extra space for text
                 
-                # Better aspect ratio preservation
-                img_ratio = img.width / img.height
-                target_ratio = target_width / target_height
+                collage = Image.new('RGBA' if remove_bg else 'RGB', 
+                                  (collage_width, collage_height), 
+                                  (255, 255, 255, 0) if remove_bg else 'white')
                 
-                if img_ratio > target_ratio:
-                    new_width = target_width
-                    new_height = int(target_width / img_ratio)
+                # Center image
+                x_offset = (collage_width - img.width) // 2
+                y_offset = padding
+                if remove_bg:
+                    collage.paste(img, (x_offset, y_offset), img)
                 else:
-                    new_height = target_height
-                    new_width = int(target_height * img_ratio)
+                    collage.paste(img, (x_offset, y_offset))
                 
-                img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                # Add text
+                if texts:
+                    self.add_text_overlay(collage, texts[0], (collage_width//2, collage_height-60))
+            
+            else:
+                # Multiple images
+                max_width = 1000
+                max_height = 600
                 
-                x_offset = pos[0] + (target_width - new_width) // 2
-                y_offset = pos[1] + (target_height - new_height) // 2
-                collage.paste(img, (x_offset, y_offset))
+                # Calculate grid layout
+                if num_images == 2:
+                    cols = 2
+                    rows = 1
+                else:
+                    cols = 3
+                    rows = (num_images + 2) // 3
+                
+                cell_width = (max_width - (cols+1)*padding) // cols
+                cell_height = (max_height - (rows+1)*padding) // rows
+                
+                collage_width = max_width
+                collage_height = max_height
+                
+                collage = Image.new('RGBA' if remove_bg else 'RGB', 
+                                  (collage_width, collage_height),
+                                  (255, 255, 255, 0) if remove_bg else 'white')
+                
+                # Place images in grid
+                for idx, img in enumerate(images):
+                    row = idx // cols
+                    col = idx % cols
+                    
+                    img = self.resize_image(img, (cell_width, cell_height))
+                    x = padding + col * (cell_width + padding)
+                    y = padding + row * (cell_height + padding)
+                    
+                    if remove_bg:
+                        collage.paste(img, (x, y), img)
+                    else:
+                        collage.paste(img, (x, y))
+                    
+                    # Add text
+                    if idx < len(texts):
+                        text_y = y + cell_height - 40
+                        self.add_text_overlay(collage, texts[idx], 
+                                           (x + cell_width//2, text_y))
 
-                # Add text with improved styling
-                if idx < len(texts):
-                    try:
-                        # Try multiple font options
-                        font_options = ['arial.ttf', 'Arial.ttf', 'DejaVuSans.ttf']
-                        font = None
-                        font_size = 40
-                        
-                        for font_name in font_options:
-                            try:
-                                font = ImageFont.truetype(font_name, font_size)
-                                break
-                            except:
-                                continue
-                        
-                        if not font:
-                            font = ImageFont.load_default()
-
-                        text = texts[idx]
-                        text_bbox = draw.textbbox((0, 0), text, font=font)
-                        text_width = text_bbox[2] - text_bbox[0]
-                        text_x = x_offset + (new_width - text_width) // 2
-                        text_y = y_offset + new_height - 80  # Increased padding
-
-                        self._draw_text_with_border(draw, text, (text_x + text_width//2, text_y), font)
-
-                    except Exception as e:
-                        print(f"Error adding text overlay: {str(e)}")
-                        continue
-
-            # Save the collage with optimization
+            # Convert to bytes
             img_byte_arr = io.BytesIO()
-            collage.save(img_byte_arr, format='PNG', optimize=True, quality=95)
+            collage.save(img_byte_arr, format='PNG', optimize=True)
             img_byte_arr.seek(0)
             return img_byte_arr.getvalue()
 
@@ -226,21 +215,183 @@ class ImageHandler:
             print(f"Error creating collage: {str(e)}")
             return None
 
-    def _draw_text_with_border(self, draw: ImageDraw, text: str, position: Tuple[int, int], font: ImageFont):
-        """Draw text with improved border and shadow effect."""
-        x, y = position
-        border_color = "black"
-        text_color = "white"
-        border_size = 3  # Increased border size
-        shadow_offset = 2  # Shadow effect
+    def add_text_overlay(self, img: Image.Image, text: str, position: Tuple[int, int]):
+        """Add text overlay with better positioning and wrapping."""
+        draw = ImageDraw.Draw(img)
+        
+        # Try multiple font options with dynamic sizing
+        font_options = ['arial.ttf', 'Arial.ttf', 'DejaVuSans.ttf']
+        font_size = 40
+        font = None
+        
+        for font_name in font_options:
+            try:
+                font = ImageFont.truetype(font_name, font_size)
+                break
+            except:
+                continue
+        
+        if not font:
+            font = ImageFont.load_default()
 
-        # Draw shadow
-        draw.text((x+shadow_offset, y+shadow_offset), text, font=font, fill="black", anchor="mm", alpha=128)
+        # Word wrap text
+        words = text.split()
+        lines = []
+        current_line = []
+        max_width = img.width * 0.8  # 80% of image width
+        
+        for word in words:
+            current_line.append(word)
+            test_line = ' '.join(current_line)
+            bbox = draw.textbbox((0, 0), test_line, font=font)
+            if bbox[2] - bbox[0] > max_width:
+                if len(current_line) == 1:
+                    lines.append(current_line[0])
+                    current_line = []
+                else:
+                    current_line.pop()
+                    lines.append(' '.join(current_line))
+                    current_line = [word]
+        
+        if current_line:
+            lines.append(' '.join(current_line))
 
-        # Draw border
-        for adj in range(-border_size, border_size+1):
-            for opp in range(-border_size, border_size+1):
-                draw.text((x+adj, y+opp), text, font=font, fill=border_color, anchor="mm")
+        # Draw text lines
+        line_height = font_size + 5
+        total_height = len(lines) * line_height
+        start_y = position[1] - total_height // 2
 
-        # Draw main text
-        draw.text((x, y), text, font=font, fill=text_color, anchor="mm")
+        for i, line in enumerate(lines):
+            bbox = draw.textbbox((0, 0), line, font=font)
+            text_width = bbox[2] - bbox[0]
+            x = position[0] - text_width // 2
+            y = start_y + i * line_height
+            
+            # Draw shadow
+            shadow_offset = 2
+            draw.text((x + shadow_offset, y + shadow_offset), 
+                     line, font=font, fill="black", alpha=128)
+            
+            # Draw border
+            border_size = 3
+            for adj in range(-border_size, border_size+1):
+                for opp in range(-border_size, border_size+1):
+                    draw.text((x + adj, y + opp), 
+                            line, font=font, fill="black")
+            
+            # Draw main text
+            draw.text((x, y), line, font=font, fill="white")
+
+    def create_meme(self, image_data: Dict, composition: Dict) -> Optional[bytes]:
+        """Create a meme based on Groq's composition instructions."""
+        try:
+            # Download and process images
+            processed_images = {}
+            for img_id, img_info in image_data.items():
+                try:
+                    cache_path = self._get_cached_image_path(img_info["url"])
+                    
+                    if os.path.exists(cache_path):
+                        img = Image.open(cache_path)
+                    else:
+                        response = self.session.get(img_info["url"], timeout=10)
+                        response.raise_for_status()
+                        img = Image.open(io.BytesIO(response.content))
+                        img = ImageOps.exif_transpose(img)
+                        img = img.convert('RGBA' if composition["remove_background"] else 'RGB')
+                        
+                        # Remove background if requested
+                        if composition["remove_background"]:
+                            img = self.remove_background(img)
+                        
+                        img.save(cache_path, 'PNG' if composition["remove_background"] else 'JPEG', quality=95)
+                    
+                    processed_images[img_id] = img
+                except Exception as e:
+                    print(f"Error processing image {img_info['url']}: {str(e)}")
+                    continue
+
+            if not processed_images:
+                return None
+
+            # Create canvas based on composition
+            target_width = composition["target_resolution"]["width"]
+            target_height = composition["target_resolution"]["height"]
+            canvas = Image.new('RGBA' if composition["remove_background"] else 'RGB',
+                             (target_width, target_height),
+                             (255, 255, 255, 0) if composition["remove_background"] else 'white')
+
+            # Apply layout based on composition type
+            if composition["composition_type"] == "single":
+                # Single image layout
+                img = list(processed_images.values())[0]
+                img = self.resize_image(img, (target_width, target_height))
+                x = (target_width - img.width) // 2
+                y = (target_height - img.height) // 2
+                if composition["remove_background"]:
+                    canvas.paste(img, (x, y), img)
+                else:
+                    canvas.paste(img, (x, y))
+            else:
+                # Collage layout
+                layout = composition["layout"]
+                spacing = layout["spacing"]
+                
+                if layout["type"] == "grid":
+                    cols = 2 if len(processed_images) == 2 else 3
+                    rows = (len(processed_images) + cols - 1) // cols
+                    cell_width = (target_width - (cols + 1) * spacing) // cols
+                    cell_height = (target_height - (rows + 1) * spacing) // rows
+                    
+                    for idx, img in enumerate(processed_images.values()):
+                        row = idx // cols
+                        col = idx % cols
+                        img = self.resize_image(img, (cell_width, cell_height))
+                        x = spacing + col * (cell_width + spacing)
+                        y = spacing + row * (cell_height + spacing)
+                        if composition["remove_background"]:
+                            canvas.paste(img, (x, y), img)
+                        else:
+                            canvas.paste(img, (x, y))
+                
+                elif layout["type"] in ["vertical", "horizontal"]:
+                    is_vertical = layout["type"] == "vertical"
+                    count = len(processed_images)
+                    if is_vertical:
+                        cell_width = target_width - 2 * spacing
+                        cell_height = (target_height - (count + 1) * spacing) // count
+                    else:
+                        cell_width = (target_width - (count + 1) * spacing) // count
+                        cell_height = target_height - 2 * spacing
+                    
+                    for idx, img in enumerate(processed_images.values()):
+                        img = self.resize_image(img, (cell_width, cell_height))
+                        if is_vertical:
+                            x = spacing
+                            y = spacing + idx * (cell_height + spacing)
+                        else:
+                            x = spacing + idx * (cell_width + spacing)
+                            y = spacing
+                        if composition["remove_background"]:
+                            canvas.paste(img, (x, y), img)
+                        else:
+                            canvas.paste(img, (x, y))
+
+            # Add text overlays
+            for text_info in composition["text_placement"]:
+                self.add_text_overlay(
+                    canvas,
+                    text_info["text"],
+                    (text_info["position"]["x"], text_info["position"]["y"]),
+                    max_width=text_info["max_width"]
+                )
+
+            # Convert to bytes
+            img_byte_arr = io.BytesIO()
+            canvas.save(img_byte_arr, format='PNG', optimize=True)
+            img_byte_arr.seek(0)
+            return img_byte_arr.getvalue()
+
+        except Exception as e:
+            print(f"Error creating meme: {str(e)}")
+            return None

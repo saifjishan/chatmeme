@@ -3,3 +3,6 @@ requests==2.31.0
 Pillow==11.0.0
 beautifulsoup4==4.12.2
 groq==0.4.2
+duckduckgo-search==6.3.6
+rembg==2.0.60
+numpy==1.26.4

@@ -53,49 +53,48 @@ if "chat_history" not in st.session_state:
 if "current_meme" not in st.session_state:
     st.session_state.current_meme = None
 
-# Initialize handlers
-image_handler = ImageHandler(
-    scraper_api_key=st.secrets["SCRAPER_API_KEY"],
-    grok_api_key=st.secrets["GROK_API_KEY"]
-)
+if "remove_bg" not in st.session_state:
+    st.session_state.remove_bg = False
 
-groq_handler = GroqHandler(
-    api_key=st.secrets["GROQ_API_KEY"]
-)
+# Initialize handlers
+groq_handler = GroqHandler(st.secrets["groq_api_key"])
+image_handler = ImageHandler(st.secrets["grok_api_key"])
 
 def generate_meme_response(prompt):
-    """Generate a meme response using both Grok and Groq."""
+    """Generate a meme response using Grok for vision and Groq for processing."""
     try:
-        # Use Groq to analyze the request and format the response
-        context_data = groq_handler.analyze_meme_request(prompt)
+        # Step 1: Use Grok to analyze the request and generate vision
+        grok_vision = groq_handler.analyze_meme_request(prompt)
         
-        if not context_data:
+        if not grok_vision:
             return "I couldn't understand the meme request. Try another prompt!"
             
-        # Search for images based on the queries
-        image_urls = []
-        for query in context_data["search_queries"]:
+        # Step 2: Search for images based on Grok's vision
+        image_data = {}
+        for idx, query in enumerate(grok_vision["search_queries"]):
             results = image_handler.search_images(query, num_images=1)
             if results:
-                image_urls.append(results[0])
-            if len(image_urls) >= 3:
-                break
+                image_data[f"image_{idx}"] = {
+                    "url": results[0],
+                    "caption": grok_vision["captions"][idx],
+                    "subject": grok_vision["subjects"][idx]
+                }
         
-        if not image_urls:
+        if not image_data:
             return "I couldn't find any suitable images for your meme. Try a different prompt!"
 
-        # Use Grok to analyze images and refine captions if needed
-        captions = context_data["captions"][:len(image_urls)]
+        # Step 3: Use Groq to determine optimal composition
+        composition = groq_handler.process_meme_composition(image_data, grok_vision)
         
-        # Create the meme collage
-        meme_image = image_handler.create_collage(
-            image_urls,
-            captions
+        # Step 4: Create the meme based on Groq's composition plan
+        meme_image = image_handler.create_meme(
+            image_data=image_data,
+            composition=composition
         )
         
         if meme_image:
             st.session_state.current_meme = meme_image
-            return "Here's your meme collage! How do you like it? 😎"
+            return "Here's your meme! How do you like it? 😎"
         else:
             return "I created the meme concept but had trouble with the image processing. Try again!"
 
@@ -135,6 +134,10 @@ def generate_response(prompt, play_it_safe=False):
 # Sidebar with chat history
 with st.sidebar:
     st.header("💬 Chat History")
+    
+    # Add background removal toggle
+    st.session_state.remove_bg = st.toggle("Remove Image Backgrounds", value=st.session_state.remove_bg)
+    
     if st.button("Clear History", key="clear"):
         st.session_state.messages = []
         st.session_state.chat_history = []
