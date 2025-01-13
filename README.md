@@ -1,12 +1,12 @@
 # ChatMeme.AI 🤖
 
-A sophisticated meme generator powered by dual AI engines (Grok & Groq) with advanced computer vision capabilities. This app creates contextually aware, multi-panel meme collages with intelligent image selection and witty captions.
+A sophisticated meme generator powered by dual AI engines (Grok & Llama) with advanced computer vision capabilities. This app creates contextually aware, multi-panel meme collages with intelligent image selection and witty captions.
 
 ## 🌟 Features
 
 - 🧠 Dual AI Processing
   - Grok AI for vision and context analysis
-  - Groq (Llama3 8B) for structured responses and composition
+  - Llama3 8B for structured responses and composition
   - Smart workflow separation
   - Intelligent decision making
 
@@ -39,7 +39,7 @@ A sophisticated meme generator powered by dual AI engines (Grok & Groq) with adv
    - Smart caching
    - Error handling
 
-3. **Composition (Groq)**
+3. **Composition (Llama3 8B)**
    - Layout decisions
    - Resolution control
    - Text placement
@@ -58,7 +58,7 @@ A sophisticated meme generator powered by dual AI engines (Grok & Groq) with adv
 - **Framework:** Streamlit 1.40.1
 - **AI Models:**
   - Grok AI (Vision & Context)
-  - Groq/Llama3 8B (Composition)
+  - Llama3 8B (Composition)
 - **Image Processing:**
   - Pillow 11.0.0
   - rembg 2.0.60
@@ -97,7 +97,7 @@ A sophisticated meme generator powered by dual AI engines (Grok & Groq) with adv
 2. The app will:
    - Analyze your request using Grok
    - Find relevant images
-   - Determine optimal composition with Groq
+   - Determine optimal composition with Llama3 8B
    - Create a professional meme
 3. Use the sidebar toggle to enable/disable background removal
 4. View your generated meme and chat history
